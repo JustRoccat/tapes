@@ -1,6 +1,6 @@
 # tapes-tui
 
-Terminal client for Tapes. Sign in with an access key.
+Terminal client for Tapes. 
 
 ```
  1 Library  2 Search  3 Playlists  4 Mixes  5 Lyrics  6 Queue     Listener
