@@ -45,6 +45,23 @@ bun install
 bun src/main.ts
 ```
 
+As a global command, from the `tui` directory:
+
+```bash
+bun install
+bun link
+tapes
+```
+
+The link needs `~/.bun/bin` on PATH. For one file with no Bun
+needed at runtime, build a binary instead:
+
+```bash
+bun build --compile src/main.ts --outfile tapes
+```
+
+It is about 120 MB, runtime included. Copy it anywhere on PATH.
+
 ## Keys
 
 | Key               | Action                              |

@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 import { ApiClient, ApiError } from "./api.ts";
 import { FfplayBackend, MpvBackend, NullBackend, findPlayer, type AudioBackend } from "./audio.ts";
 import { runApp } from "./app.ts";
