@@ -1,0 +1,32 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bunx tsc --noEmit
+      - run: bun test
+      - run: bun build --compile src/main.ts --outfile tapes-linux-x64
+      - name: Retag latest
+        run: |
+          git tag -f latest "$GITHUB_SHA"
+          git push --force origin latest
+      - name: Replace release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete latest --yes || true
+          gh release create latest tapes-linux-x64 \
+            --title "Latest build" \
+            --generate-notes

@@ -4,6 +4,8 @@ import { FfplayBackend, MpvBackend, NullBackend, findPlayer, type AudioBackend }
 import { runApp } from "./app.ts";
 import { clearSessionFile, loadSessionFile, saveSessionFile, sessionFilePath } from "./session.ts";
 import { announceRelay } from "./relay.ts";
+import { checkForUpdate } from "./update.ts";
+import { dirname, join } from "node:path";
 
 const SERVER = "https://debian.tailada905.ts.net:8443";
 // one fixed address, if u change it ur fucked cause theres no other tapes server c:
@@ -87,6 +89,18 @@ async function main(): Promise<void> {
     return;
   }
   announceRelay();
+  // update before anything else, so a restart boots the new code
+  const root = join(dirname(import.meta.dir), "..");
+  const update = await checkForUpdate(root).catch(() => ({ kind: "skipped", reason: "check failed" }) as const);
+  if (update.kind === "updated") {
+    process.stdout.write(`Updated to ${update.to.slice(0, 7)}. Restarting.\n`);
+    Bun.spawn([process.execPath, ...process.argv.slice(1)], {
+      stdin: "inherit",
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+    process.exit(0);
+  }
   const baseUrl = (process.env["TAPES_SERVER"] ?? SERVER).trim().replace(/\/+$/, "");
   const api = new ApiClient(baseUrl);
   let ready = false;

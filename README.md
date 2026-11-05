@@ -62,6 +62,18 @@ bun build --compile src/main.ts --outfile tapes
 
 It is about 120 MB, runtime included. Copy it anywhere on PATH.
 
+Prefer not to build: every push to main rebuilds the same binary
+on GitHub, attached to the `latest` release. Download, chmod +x, run.
+
+The key comes from `TAPES_KEY` or from a hidden prompt. Nothing is stored.
+
+## Updating
+
+On start the client pulls fast-forward updates from git and restarts
+itself on the new code. It skips the check without git or network, and
+it never touches a dirty tree. Rebuilt binaries need a fresh
+`bun build --compile`.
+
 ## Keys
 
 | Key               | Action                              |
