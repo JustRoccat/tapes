@@ -50,7 +50,7 @@ interface Row {
 }
 
 interface Drill {
-  kind: "artist" | "playlist" | "mix" | "recommended";
+  kind: "artist" | "album" | "playlist" | "mix" | "recommended";
   title: string;
   sub: string;
   rows: Row[];
@@ -71,6 +71,38 @@ function trackRow(track: Track, liked: boolean, depth: number, parent: string): 
     depth,
     parent,
   };
+}
+
+interface PaintLine {
+  text: string;
+  fg: string;
+  bg: string;
+}
+
+class LineList {
+  private nodes: TextRenderable[] = [];
+
+  constructor(private renderer: CliRenderer, private parent: BoxRenderable) {}
+
+  show(lines: PaintLine[], width: number): void {
+    while (this.nodes.length < lines.length) {
+      const node = new TextRenderable(this.renderer, { content: "", fg: PAPER, bg: INK, width: "100%" });
+      this.parent.add(node);
+      this.nodes.push(node);
+    }
+    for (let index = 0; index < this.nodes.length; index += 1) {
+      const node = this.nodes[index];
+      if (!node) continue;
+      if (index < lines.length) {
+        const line = lines[index] as PaintLine;
+        node.content = truncate(line.text, width);
+        node.fg = line.fg;
+        node.bg = line.bg;
+      } else {
+        node.content = "";
+      }
+    }
+  }
 }
 
 export async function runApp(deps: AppDeps): Promise<"quit" | "login"> {
@@ -136,7 +168,11 @@ class TapesApp {
   private saveTick = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
   private done: (value: "quit" | "login") => void = () => {};
-  private kids = new Map<BoxRenderable, TextRenderable[]>();
+  private headerTabs: TextRenderable[] = [];
+  private headerName: TextRenderable | null = null;
+  private listLines!: LineList;
+  private sideLines!: LineList;
+  private bottomLines!: LineList;
 
   constructor(
     private renderer: CliRenderer,
@@ -156,6 +192,18 @@ class TapesApp {
     this.root.add(this.header);
     this.root.add(this.main);
     this.root.add(this.bottom);
+    this.listLines = new LineList(renderer, this.list);
+    this.sideLines = new LineList(renderer, this.side);
+    this.bottomLines = new LineList(renderer, this.bottom);
+    for (let tab = 0; tab < VIEWS.length; tab += 1) {
+      const node = new TextRenderable(renderer, { content: "", fg: PAPER, bg: INK });
+      this.header.add(node);
+      this.headerTabs.push(node);
+    }
+    const spacer = new TextRenderable(renderer, { content: "", flexGrow: 1 });
+    this.header.add(spacer);
+    this.headerName = new TextRenderable(renderer, { content: "", fg: FADED, bg: INK });
+    this.header.add(this.headerName);
     renderer.root.add(this.root);
     renderer.keyInput.on("keypress", (key) => void this.onKey(key));
     renderer.on(CliRenderEvents.RESIZE, () => this.paint());
@@ -601,6 +649,15 @@ class TapesApp {
           title: artist.name,
           sub: `${artist.albumCount} albums`,
           rows: tracks.map((track) => trackRow(track, this.liked.has(track.id), 0, "")),
+        });
+      } else if (row.kind === "album") {
+        const album = library.albums.find((item) => `${item.name}|||${item.artist}` === row.id);
+        if (!album) return;
+        this.setDrill({
+          kind: "album",
+          title: album.name,
+          sub: `${album.artist} - ${album.trackCount} tracks`,
+          rows: tracksForAlbum(library, album).map((track) => trackRow(track, this.liked.has(track.id), 0, "")),
         });
       } else if (row.kind === "playlist") {
         const detail = await this.api.playlistDetail(row.id);
@@ -1120,22 +1177,6 @@ class TapesApp {
     this.paint();
   }
 
-  private track(parent: BoxRenderable, child: TextRenderable): void {
-    parent.add(child);
-    const list = this.kids.get(parent) ?? [];
-    list.push(child);
-    this.kids.set(parent, list);
-  }
-
-  private kid(parent: BoxRenderable, content: string, fg: string, bg: string, width: number): void {
-    this.track(parent, new TextRenderable(this.renderer, { content: truncate(content, width), fg, bg, width: "100%" }));
-  }
-
-  private clearKids(parent: BoxRenderable): void {
-    for (const child of this.kids.get(parent) ?? []) parent.remove(child);
-    this.kids.set(parent, []);
-  }
-
   private paint(): void {
     if (this.gone) return;
     const width = this.renderer.terminalWidth;
@@ -1151,62 +1192,69 @@ class TapesApp {
   }
 
   private paintHeader(): void {
-    this.clearKids(this.header);
-    for (const item of VIEWS) {
+    VIEWS.forEach((item, index) => {
+      const node = this.headerTabs[index];
+      if (!node) return;
       const active = this.view === item.id && !this.drill;
-      this.track(this.header, new TextRenderable(this.renderer, {
-        content: ` ${item.key} ${item.tab} `,
-        fg: active ? INK : PAPER,
-        bg: active ? PAPER : INK,
-      }));
-    }
-    this.track(this.header, new TextRenderable(this.renderer, { content: "", flexGrow: 1 }));
-    this.track(this.header, new TextRenderable(this.renderer, { content: ` ${this.accountName} `, fg: FADED, bg: INK }));
+      node.content = ` ${item.key} ${item.tab} `;
+      node.fg = active ? INK : PAPER;
+      node.bg = active ? PAPER : INK;
+    });
+    if (this.headerName) this.headerName.content = ` ${this.accountName} `;
   }
 
   private paintList(listW: number): void {
-    this.clearKids(this.list);
     const visible = this.listHeight();
+    const lines: PaintLine[] = [];
+    const show = (): void => {
+      this.listLines.show(lines, listW);
+    };
     if (this.prompt) {
-      this.kid(this.list, `${this.prompt.label}: ${this.prompt.value}_`, PAPER, INK, listW);
-      this.kid(this.list, "Enter confirms, Esc walks away.", FADED, INK, listW);
+      lines.push({ text: `${this.prompt.label}: ${this.prompt.value}_`, fg: PAPER, bg: INK });
+      lines.push({ text: "Enter confirms, Esc walks away.", fg: FADED, bg: INK });
+      show();
       return;
     }
     if (this.picker) {
-      this.kid(this.list, "Keep this track in:", FADED, INK, listW);
+      lines.push({ text: "Keep this track in:", fg: FADED, bg: INK });
       this.playlists.forEach((list, index) => {
         const active = index === this.picker?.sel;
-        this.kid(this.list, `${active ? "> " : "  "}${list.name}`, active ? INK : PAPER, active ? PAPER : INK, listW);
+        lines.push({ text: `${active ? "> " : "  "}${list.name}`, fg: active ? INK : PAPER, bg: active ? PAPER : INK });
       });
       const fresh = this.picker.sel === this.playlists.length;
-      this.kid(this.list, `${fresh ? "> " : "  "}[New playlist]`, fresh ? INK : PAPER, fresh ? PAPER : INK, listW);
-      this.kid(this.list, "Enter keeps, Esc walks away.", FADED, INK, listW);
+      lines.push({ text: `${fresh ? "> " : "  "}[New playlist]`, fg: fresh ? INK : PAPER, bg: fresh ? PAPER : INK });
+      lines.push({ text: "Enter keeps, Esc walks away.", fg: FADED, bg: INK });
+      show();
       return;
     }
     if (this.view === "help") {
-      const lines = helpLines();
-      this.helpOffset = Math.min(this.helpOffset, Math.max(0, lines.length - visible));
-      for (const helpLine of lines.slice(this.helpOffset, this.helpOffset + visible)) {
-        this.kid(this.list, helpLine.text || " ", helpLine.dim ? FADED : PAPER, INK, listW);
+      const help = helpLines();
+      this.helpOffset = Math.min(this.helpOffset, Math.max(0, help.length - visible));
+      for (const helpLine of help.slice(this.helpOffset, this.helpOffset + visible)) {
+        lines.push({ text: helpLine.text || " ", fg: helpLine.dim ? FADED : PAPER, bg: INK });
       }
+      show();
       return;
     }
     if (this.loading) {
-      this.kid(this.list, `${this.loading}. The first visit takes a moment.`, PAPER, INK, listW);
+      lines.push({ text: `${this.loading}. The first visit takes a moment.`, fg: PAPER, bg: INK });
+      show();
       return;
     }
     if (!this.library) {
-      this.kid(this.list, this.error || "The library did not load.", PAPER, INK, listW);
-      this.kid(this.list, "Press q to leave, then sign in again.", FADED, INK, listW);
+      lines.push({ text: this.error || "The library did not load.", fg: PAPER, bg: INK });
+      lines.push({ text: "Press q to leave, then sign in again.", fg: FADED, bg: INK });
+      show();
       return;
     }
-    if (this.view === "search") this.kid(this.list, `Search: ${this.query}_`, PAPER, INK, listW);
+    if (this.view === "search") lines.push({ text: `Search: ${this.query}_`, fg: PAPER, bg: INK });
     if (this.drill) {
-      this.kid(this.list, this.drill.title, PAPER, INK, listW);
-      this.kid(this.list, this.drill.sub, FADED, INK, listW);
+      lines.push({ text: this.drill.title, fg: PAPER, bg: INK });
+      lines.push({ text: this.drill.sub, fg: FADED, bg: INK });
     }
     if (!this.rows.length) {
-      for (const empty of emptyState(this.view, this.query)) this.kid(this.list, empty, FADED, INK, listW);
+      for (const empty of emptyState(this.view, this.query)) lines.push({ text: empty, fg: FADED, bg: INK });
+      show();
       return;
     }
     if (this.sel < this.offset) this.offset = this.sel;
@@ -1216,14 +1264,15 @@ class TapesApp {
     slice.forEach((row, index) => {
       const active = this.offset + index === this.sel;
       if (row.kind === "note") {
-        this.kid(this.list, row.label, FADED, INK, listW);
+        lines.push({ text: row.label, fg: FADED, bg: INK });
         return;
       }
       const indent = "  ".repeat(Math.min(3, row.depth));
       const marker = row.kind === "artist" || row.kind === "album" ? (this.isOpen(row) ? "- " : "+ ") : active ? "> " : "  ";
-      this.kid(this.list, `${indent}${marker}${row.label}`, active ? INK : PAPER, active ? PAPER : INK, listW);
-      if (active && row.sub) this.kid(this.list, `${indent}  ${row.sub}`, FADED, INK, listW);
+      lines.push({ text: `${indent}${marker}${row.label}`, fg: active ? INK : PAPER, bg: active ? PAPER : INK });
+      if (active && row.sub) lines.push({ text: `${indent}  ${row.sub}`, fg: FADED, bg: INK });
     });
+    show();
   }
 
   private isOpen(row: Row): boolean {
@@ -1233,38 +1282,38 @@ class TapesApp {
   }
 
   private paintSide(sideW: number): void {
-    this.clearKids(this.side);
+    const lines: PaintLine[] = [];
     const track = this.currentTrack();
-    this.kid(this.side, "Now", FADED, INK, sideW);
+    lines.push({ text: "Now", fg: FADED, bg: INK });
     if (track) {
       const icon = this.paused ? "| " : "> ";
-      this.kid(this.side, `${icon}${track.title}`, INK, PAPER, sideW);
-      this.kid(this.side, `${track.artist} - ${track.album}`, FADED, INK, sideW);
+      lines.push({ text: `${icon}${track.title}`, fg: INK, bg: PAPER });
+      lines.push({ text: `${track.artist} - ${track.album}`, fg: FADED, bg: INK });
       const barWidth = Math.max(8, sideW - 14);
       const fraction = this.dur > 0 ? this.pos / this.dur : 0;
-      this.kid(this.side, `${formatTime(this.pos)} ${progressBar(fraction, barWidth)}`, PAPER, INK, sideW);
+      lines.push({ text: `${formatTime(this.pos)} ${progressBar(fraction, barWidth)}`, fg: PAPER, bg: INK });
       const order = this.shuffle ? "shuffle" : "in order";
-      this.kid(this.side, `${formatTime(this.dur)} vol ${Math.round(this.volume * 100)} ${order} repeat ${this.repeat}`, FADED, INK, sideW);
+      lines.push({ text: `${formatTime(this.dur)} vol ${Math.round(this.volume * 100)} ${order} repeat ${this.repeat}`, fg: FADED, bg: INK });
     } else {
-      this.kid(this.side, "Nothing plays.", PAPER, INK, sideW);
-      this.kid(this.side, "Enter starts a track.", FADED, INK, sideW);
+      lines.push({ text: "Nothing plays.", fg: PAPER, bg: INK });
+      lines.push({ text: "Enter starts a track.", fg: FADED, bg: INK });
     }
-    this.kid(this.side, "─".repeat(Math.max(1, sideW)), FADED, INK, sideW);
-    this.kid(this.side, "Next", FADED, INK, sideW);
+    lines.push({ text: "─".repeat(Math.max(1, sideW)), fg: FADED, bg: INK });
+    lines.push({ text: "Next", fg: FADED, bg: INK });
     const upcoming = this.queueTracks.slice(this.queueIndex + 1, this.queueIndex + 8);
     if (!upcoming.length) {
-      this.kid(this.side, "The queue ends here.", FADED, INK, sideW);
+      lines.push({ text: "The queue ends here.", fg: FADED, bg: INK });
     }
     upcoming.slice(0, Math.max(0, this.listHeight() - 10)).forEach((next, at) => {
-      this.kid(this.side, `${at + 1}. ${this.liked.has(next.id) ? "* " : ""}${next.title}`, PAPER, INK, sideW);
+      lines.push({ text: `${at + 1}. ${this.liked.has(next.id) ? "* " : ""}${next.title}`, fg: PAPER, bg: INK });
     });
+    this.sideLines.show(lines, sideW);
   }
 
   private paintBottom(width: number): void {
-    this.clearKids(this.bottom);
     const hints = "? help";
     const message = this.freshStatus() || (this.library ? "" : this.error) || hints;
-    this.kid(this.bottom, message, message === hints ? FADED : PAPER, INK, width);
+    this.bottomLines.show([{ text: message, fg: message === hints ? FADED : PAPER, bg: INK }], width);
   }
 }
 
