@@ -230,18 +230,27 @@ describe("relay", () => {
     expect(second[1]).toBe("524288:close");
   });
 
-  test("it ends the stream with an error once the window runs out", async () => {    const cookies: string[] = [];
+  test("it ends the stream with an error once the window runs out", async () => {
+    const cookies: string[] = [];
     const upstream = chunked(new Map([[524288, 999]]), cookies);
     const relay = new StreamRelay(`http://127.0.0.1:${upstream.port}/stream`, "relay-cookie", new TrackCache(), {
       ...FAST,
       retryWindowMs: 400,
     });
     const response = await fetch(relay.url, { headers: { range: "bytes=0-" } });
-    const out = new Uint8Array(await response.arrayBuffer());
+    // newer runtimes reset the connection on stream error, older ones
+    // deliver what arrived first: either way there is no full file
+    let out: Uint8Array | null = null;
+    let failed = false;
+    try {
+      out = new Uint8Array(await response.arrayBuffer());
+    } catch {
+      failed = true;
+    }
     relay.close();
     upstream.stop(true);
     expect(response.status).toBe(206);
-    expect(out.length).toBeLessThan(BYTES);
+    expect(failed || (out !== null && out.length < BYTES)).toBe(true);
   });
 
   test("a seek past the cached bytes does not corrupt the cache", () => {
@@ -337,7 +346,8 @@ describe("relay", () => {
     expect(log).toMatch(/req \d+ player closed at \d+ of 1400000/);
   });
 
-  test("a changed total drops the cache and replays clean", async () => {    const bigSize = BYTES + 500;
+  test("a changed total drops the cache and replays clean", async () => {
+    const bigSize = BYTES + 500;
     const other = new Uint8Array(bigSize).map((_, i) => (i * 7) % 251);
     let calls = 0;
     const upstream = Bun.serve({
@@ -362,8 +372,15 @@ describe("relay", () => {
     });
     const cache = new TrackCache();
     const relay = new StreamRelay(`http://127.0.0.1:${upstream.port}/stream`, "relay-cookie", cache);
-    const first = new Uint8Array(await (await fetch(relay.url, { headers: { range: "bytes=0-" } })).arrayBuffer());
-    expect(first.length).toBeLessThan(BYTES);
+    // the space change kills the first stream: a reset connection on new
+    // runtimes, a truncated body on old ones
+    let first: Uint8Array | null = null;
+    try {
+      first = new Uint8Array(await (await fetch(relay.url, { headers: { range: "bytes=0-" } })).arrayBuffer());
+    } catch {
+      first = null;
+    }
+    expect(first === null || first.length < BYTES).toBe(true);
     const second = new Uint8Array(await (await fetch(relay.url, { headers: { range: "bytes=0-" } })).arrayBuffer());
     relay.close();
     upstream.stop(true);
@@ -389,10 +406,15 @@ describe("relay", () => {
     });
     const cache = new TrackCache();
     const relay = new StreamRelay(`http://127.0.0.1:${upstream.port}/stream`, "relay-cookie", cache);
-    const out = new Uint8Array(await (await fetch(relay.url, { headers: { range: "bytes=0-" } })).arrayBuffer());
+    let out: Uint8Array | null = null;
+    try {
+      out = new Uint8Array(await (await fetch(relay.url, { headers: { range: "bytes=0-" } })).arrayBuffer());
+    } catch {
+      out = null;
+    }
     relay.close();
     upstream.stop(true);
-    expect(out).toEqual(body.slice(0, 524288));
+    if (out !== null) expect(out).toEqual(body.slice(0, 524288));
     expect(cache.sizeBytes).toBe(524288);
   });
 

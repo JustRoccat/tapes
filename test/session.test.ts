@@ -57,6 +57,12 @@ describe("session file", () => {
   });
 
   test("the default path lives under the user config dir", () => {
-    expect(sessionFilePath("/home/listener")).toBe("/home/listener/.config/tapes/session");
+    const saved = process.env.XDG_CONFIG_HOME;
+    delete process.env.XDG_CONFIG_HOME;
+    try {
+      expect(sessionFilePath("/home/listener")).toBe("/home/listener/.config/tapes/session");
+    } finally {
+      if (saved !== undefined) process.env.XDG_CONFIG_HOME = saved;
+    }
   });
 });
