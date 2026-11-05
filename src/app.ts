@@ -60,6 +60,7 @@ export interface AppDeps {
   api: ApiClient;
   audio: AudioBackend;
   accountName: string;
+  version: string;
 }
 
 function trackRow(track: Track, liked: boolean, depth: number, parent: string): Row {
@@ -123,6 +124,7 @@ class TapesApp {
   private api: ApiClient;
   private audio: AudioBackend;
   private accountName: string;
+  private version: string;
   private root: BoxRenderable;
   private header: BoxRenderable;
   private main: BoxRenderable;
@@ -181,6 +183,7 @@ class TapesApp {
     this.api = deps.api;
     this.audio = deps.audio;
     this.accountName = deps.accountName;
+    this.version = deps.version;
     this.root = new BoxRenderable(renderer, { id: "root", width: "100%", height: "100%", flexDirection: "column", backgroundColor: INK });
     this.header = new BoxRenderable(renderer, { id: "header", width: "100%", height: 1, flexDirection: "row" });
     this.main = new BoxRenderable(renderer, { id: "main", width: "100%", flexGrow: 1, flexDirection: "row" });
@@ -986,7 +989,7 @@ class TapesApp {
         break;
       case "end":
         if (this.view === "help") {
-          this.helpOffset = helpLines().length;
+          this.helpOffset = helpLines(this.version).length;
         } else {
           this.sel = Math.max(0, this.rows.length - 1);
         }
@@ -1228,7 +1231,7 @@ class TapesApp {
       return;
     }
     if (this.view === "help") {
-      const help = helpLines();
+      const help = helpLines(this.version);
       this.helpOffset = Math.min(this.helpOffset, Math.max(0, help.length - visible));
       for (const helpLine of help.slice(this.helpOffset, this.helpOffset + visible)) {
         lines.push({ text: helpLine.text || " ", fg: helpLine.dim ? FADED : PAPER, bg: INK });
@@ -1397,7 +1400,7 @@ const HELP_FOOT = [
   "Sound plays through mpv or ffplay on this machine.",
 ];
 
-function helpLines(): { text: string; dim: boolean }[] {
+function helpLines(version: string): { text: string; dim: boolean }[] {
   const lines: { text: string; dim: boolean }[] = [{ text: "Keys", dim: false }];
   for (const section of HELP_SECTIONS) {
     lines.push({ text: "", dim: false });
@@ -1410,7 +1413,7 @@ function helpLines(): { text: string; dim: boolean }[] {
   }
   lines.push({ text: "", dim: false });
   for (const foot of HELP_FOOT) lines.push({ text: foot, dim: true });
-  lines.push({ text: `Build: ${RELAY_VERSION}`, dim: true });
+  lines.push({ text: `Build: ${RELAY_VERSION}${version ? ` ${version}` : ""}`, dim: true });
   lines.push({ text: "Logs live in /tmp: tapes-tui.log, tapes-relay.log, tapes-mpv-*.log", dim: true });
   return lines;
 }
