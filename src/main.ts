@@ -5,7 +5,7 @@ import { runApp } from "./app.ts";
 import { clearSessionFile, loadSessionFile, saveSessionFile, sessionFilePath } from "./session.ts";
 import { announceRelay } from "./relay.ts";
 import { checkForUpdate } from "./update.ts";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 
 const SERVER = "https://debian.tailada905.ts.net:8443";
 // one fixed address, if u change it ur fucked cause theres no other tapes server c:
@@ -90,7 +90,14 @@ async function main(): Promise<void> {
   }
   announceRelay();
   // update before anything else, so a restart boots the new code
-  const root = join(dirname(import.meta.dir), "..");
+  const root = join(import.meta.dir, "..");
+  let version = "";
+  try {
+    const head = Bun.spawnSync(["git", "-C", root, "rev-parse", "--short", "HEAD"]);
+    if (head.exitCode === 0) version = head.stdout.toString().trim();
+  } catch {
+    /* unknown version still boots */
+  }
   const update = await checkForUpdate(root).catch(() => ({ kind: "skipped", reason: "check failed" }) as const);
   if (update.kind === "updated") {
     process.stdout.write(`Updated to ${update.to.slice(0, 7)}. Restarting.\n`);
@@ -135,7 +142,7 @@ async function main(): Promise<void> {
   }
   const audio = backendFor(player ?? "silent");
   for (;;) {
-    const outcome = await runApp({ api, audio, accountName });
+    const outcome = await runApp({ api, audio, accountName, version });
     if (outcome === "quit") return;
     await signIn(api);
     if (api.sessionCookie) saveSessionFile(sessionPath, baseUrl, api.sessionCookie);
