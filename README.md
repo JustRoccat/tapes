@@ -2,19 +2,6 @@
 
 Terminal client for Tapes. 
 
-```
- 1 Library  2 Search  3 Playlists  4 Mixes  5 Lyrics  6 Queue     Listener
-+ Harbor Lights
-  1 albums                                        Now
-+ Tin Foil Parade                                 > Paper Lantern
-                                                  Tin Foil Parade - Paper Moon
-                                                  0:00 ----------
-                                                  3:30 vol 90 in order repeat off
-                                                  ────────────────────────
-                                                  Next
-                                                  1 Glass Harbor
-? help
-```
 
 ## Features
 
